@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LazyTap 懒触 · 交互预览</title>
+<style>
+  :root{
+    --bg:#08090c;
+    --panel:rgba(255,255,255,.055);
+    --line:rgba(255,255,255,.10);
+    --txt:#e9edf3;
+    --dim:#8b929e;
+    --blue:#4ab3ff;
+    --green:#31d158;
+    --red:#ff5b57;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    margin:0;background:
+      radial-gradient(900px 600px at 20% 0%,rgba(74,179,255,.10),transparent 60%),
+      radial-gradient(700px 500px at 90% 100%,rgba(49,209,88,.07),transparent 60%),
+      var(--bg);
+    color:var(--txt);font:14px/1.5 -apple-system,"SF Pro Text","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    display:flex;align-items:center;justify-content:center;gap:56px;padding:40px 28px;min-height:100vh;
+    flex-wrap:wrap;
+  }
+
+  /* ---------- 手机 ---------- */
+  .phone{
+    position:relative;width:390px;height:844px;border-radius:56px;
+    background:#000;border:10px solid #191b20;
+    box-shadow:0 40px 90px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.06) inset,0 0 60px rgba(74,179,255,.08);
+    flex:0 0 auto;overflow:hidden;isolation:isolate;
+  }
+  .island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:118px;height:33px;border-radius:20px;background:#000;z-index:99;pointer-events:none}
+  .island::after{content:"";position:absolute;right:14px;top:12px;width:9px;height:9px;border-radius:50%;background:#0d1014;box-shadow:0 0 0 2px #05070a inset,0 0 6px rgba(74,179,255,.25)}
+  .screen{position:absolute;inset:0;overflow:hidden;border-radius:46px;background:#0a0c11}
+
+  /* ---------- 背景里的假 App ---------- */
+  .app{position:absolute;inset:0;padding:54px 18px 96px;opacity:.92}
+  .statusbar{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 26px 0 30px;font-size:13px;font-weight:600;letter-spacing:.2px;color:#fff}
+  .statusbar .r{display:flex;gap:5px;align-items:center;opacity:.9}
+  .apphead{display:flex;align-items:flex-end;justify-content:space-between;margin:14px 0 18px}
+  .apphead h1{margin:0;font-size:26px;letter-spacing:-.5px}
+  .apphead span{font-size:12px;color:var(--dim)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:14px 15px;margin-bottom:12px;display:flex;align-items:center;gap:13px}
+  .dot{width:38px;height:38px;border-radius:12px;background:linear-gradient(140deg,rgba(74,179,255,.35),rgba(74,179,255,.08));flex:0 0 auto;display:grid;place-items:center;font-size:16px}
+  .card .t{flex:1;min-width:0}
+  .card .t b{display:block;font-size:14px;font-weight:600;margin-bottom:2px}
+  .card .t i{font-style:normal;font-size:12px;color:var(--dim)}
+  .btn{border:0;border-radius:12px;padding:8px 15px;background:rgba(74,179,255,.16);color:#8fd0ff;font-size:12.5px;font-weight:600;cursor:pointer}
+  .btn:active{transform:scale(.95)}
+  .tabbar{position:absolute;left:0;right:0;bottom:0;height:76px;display:flex;align-items:center;justify-content:space-around;background:linear-gradient(180deg,rgba(10,12,17,0),rgba(10,12,17,.96) 40%);font-size:10px;color:var(--dim)}
+  .tabbar div{display:grid;place-items:center;gap:4px}
+  .tabbar .on{color:var(--blue)}
+
+  /* ---------- 悬浮竖条 ---------- */
+  .bar{
+    position:absolute;z-index:40;width:66px;border-radius:24px;
+    background:rgba(18,20,26,.88);
+    -webkit-backdrop-filter:blur(20px) saturate(170%);
+    backdrop-filter:blur(20px) saturate(170%);
+    border:.8px solid rgba(255,255,255,.13);
+    box-shadow:0 12px 34px rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,.07) inset;
+    display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px;
+    transition:border-radius .22s ease,box-shadow .25s ease,padding .2s ease;
+    cursor:grab;touch-action:none;user-select:none;
+  }
+  .bar.dragging{cursor:grabbing;transition:none}
+  .bar.collapsed{border-radius:50%;width:66px;height:66px;padding:0;gap:0;justify-content:center}
+  .bar.collapsed .b:not(.power),.bar.collapsed .count,.bar.collapsed .minirow{display:none}
+  .minirow{display:flex;flex-direction:column;align-items:center;gap:2px}
+  .b{
+    width:44px;height:44px;border-radius:50%;display:grid;place-items:center;
+    color:#d7dbe2;background:rgba(255,255,255,.055);cursor:pointer;
+    transition:background .18s,transform .12s,box-shadow .25s,color .18s;
+  }
+  .b.mini{width:30px;height:30px}
+  .b.mini svg{width:15px;height:15px}
+  .b.dim{opacity:.3;pointer-events:none}
+  .b:hover{background:rgba(255,255,255,.10)}
+  .b:active{transform:scale(.9)}
+  .b svg{width:20px;height:20px;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  .b.power.on{background:var(--green);color:#04160a;box-shadow:0 0 20px rgba(49,209,88,.7),0 0 0 3px rgba(49,209,88,.14)}
+  .b.active{background:rgba(74,179,255,.22);color:#9ad6ff}
+  .count{font:500 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);height:14px;display:grid;place-items:center;letter-spacing:.3px}
+
+  /* ---------- 点位标记 ---------- */
+  .m{
+    position:absolute;z-index:20;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;
+    border:2px solid var(--blue);background:rgba(0,0,0,.45);color:#fff;
+    display:grid;place-items:center;font:700 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+    box-shadow:0 0 14px rgba(74,179,255,.55);cursor:grab;touch-action:none;
+    transition:opacity .15s,box-shadow .2s,transform .1s;
+  }
+  .m:active{transform:scale(1.06)}
+  .m.off{opacity:.32;box-shadow:none}
+  .m.sel{box-shadow:0 0 0 4px rgba(74,179,255,.22),0 0 18px rgba(74,179,255,.7)}
+  .rip{position:absolute;z-index:19;width:36px;height:36px;margin:-18px 0 0 -18px;border-radius:50%;
+    border:2px solid var(--green);pointer-events:none;animation:rip .5s ease-out forwards}
+  @keyframes rip{from{transform:scale(1);opacity:.95}to{transform:scale(2.3);opacity:0}}
+
+  /* ---------- 拾取模式 ---------- */
+  .pick{position:absolute;inset:0;z-index:15;background:rgba(0,0,0,.26);display:none;cursor:crosshair}
+  .pick.on{display:block}
+  .hint{
+    position:absolute;left:50%;top:58px;transform:translate(-50%,-10px);z-index:45;
+    background:rgba(14,16,21,.95);border:.8px solid rgba(255,255,255,.12);
+    color:#fff;font-size:12.5px;font-weight:500;padding:9px 16px;border-radius:17px;
+    white-space:nowrap;opacity:0;pointer-events:none;transition:all .22s ease;
+  }
+  .hint.on{opacity:1;transform:translate(-50%,0)}
+
+  /* ---------- 参数面板 ---------- */
+  .sheet{
+    position:absolute;left:12px;right:12px;bottom:-470px;height:430px;z-index:60;
+    background:rgba(22,24,30,.975);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);
+    border:.8px solid rgba(255,255,255,.10);border-radius:24px;
+    padding:16px 20px;transition:bottom .3s cubic-bezier(.2,.85,.2,1);
+    box-shadow:0 -18px 50px rgba(0,0,0,.55);
+  }
+  .sheet.open{bottom:22px}
+  .sheet .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .sheet .hd b{font-size:16px}
+  .sheet .hd button{border:0;background:none;color:var(--blue);font-size:14px;font-weight:600;cursor:pointer;padding:4px 6px}
+  .row{display:flex;align-items:center;justify-content:space-between;margin:11px 0 5px;font-size:13px;color:var(--dim)}
+  .row .v{color:var(--blue);font-weight:700;font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--blue);height:22px;margin:0 0 9px;cursor:pointer}
+  input[type=range]:disabled{opacity:.3;cursor:default}
+  .seg{display:flex;background:rgba(255,255,255,.06);border-radius:11px;padding:3px;margin-bottom:13px}
+  .seg button{flex:1;border:0;background:none;color:#cfd4dc;font-size:13px;padding:7px 0;border-radius:9px;cursor:pointer;transition:.18s}
+  .seg button.on{background:var(--blue);color:#04121e;font-weight:700}
+  .sw{display:flex;align-items:center;justify-content:space-between;font-size:13px;color:#c6ccd6;margin:9px 0}
+  .toggle{width:44px;height:27px;border-radius:14px;background:rgba(255,255,255,.14);position:relative;cursor:pointer;transition:background .2s}
+  .toggle::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:#fff;transition:transform .2s}
+  .toggle.on{background:var(--blue)}
+  .toggle.on::after{transform:translateX(17px)}
+  .danger{width:100%;border:0;border-radius:13px;padding:11px;margin-top:12px;background:rgba(255,91,87,.12);color:var(--red);font-size:13px;font-weight:600;cursor:pointer}
+  .danger:active{transform:scale(.98)}
+
+  /* ---------- 右侧说明 ---------- */
+  .tips{max-width:330px;min-width:260px}
+  .tips h2{font-size:20px;margin:0 0 4px;letter-spacing:-.3px}
+  .tips .sub{color:var(--dim);font-size:12.5px;margin-bottom:20px}
+  .tip{display:flex;gap:12px;margin-bottom:15px;align-items:flex-start}
+  .tip .k{flex:0 0 auto;width:26px;height:26px;border-radius:9px;background:rgba(74,179,255,.14);color:var(--blue);
+    display:grid;place-items:center;font-size:12px;font-weight:700}
+  .tip .d{font-size:12.8px;color:#b9c0cb;line-height:1.55}
+  .tip .d b{color:#fff;font-weight:600}
+  .badge{display:inline-flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--dim);
+    border:1px solid var(--line);border-radius:20px;padding:5px 11px}
+  .badge i{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;box-shadow:0 0 8px var(--green)}
+  @media (max-width:860px){body{gap:30px;padding:24px 14px}.phone{transform:scale(.86);transform-origin:top center;margin-bottom:-110px}}
+</style>
+</head>
+<body>
+
+<div class="phone" id="phone">
+  <div class="island"></div>
+  <div class="screen" id="screen">
+
+    <!-- 假 App -->
+    <div class="app">
+      <div class="statusbar"><span>9:41</span><span class="r">▮▮▮ ⌾ ▰</span></div>
+      <div class="apphead">
+        <h1>任务中心</h1><span>今日 3/5</span>
+      </div>
+      <div class="card"><div class="dot">🏆</div><div class="t"><b>每日签到</b><i>+10 积分 · 0/1</i></div><button class="btn">领取</button></div>
+      <div class="card"><div class="dot">🎁</div><div class="t"><b>观看视频得奖励</b><i>每 30 秒一次</i></div><button class="btn">去完成</button></div>
+      <div class="card"><div class="dot">🔥</div><div class="t"><b>限时抽奖</b><i>剩余 2 次</i></div><button class="btn">抽奖</button></div>
+      <div class="card"><div class="dot">📅</div><div class="t"><b>预约提醒</b><i>明天 10:00</i></div><button class="btn">预约</button></div>
+      <div class="card"><div class="dot">💎</div><div class="t"><b>邀请好友</b><i>已邀 0 人</i></div><button class="btn">邀请</button></div>
+      <div class="tabbar">
+        <div class="on">◎<span>首页</span></div>
+        <div>◇<span>任务</span></div>
+        <div>◈<span>我的</span></div>
+      </div>
+    </div>
+
+    <!-- 悬浮竖条 -->
+    <div class="bar" id="bar" style="left:308px;top:300px">
+      <div class="b power" id="bPower" title="开关">
+        <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M7.5 6.6a7 7 0 1 0 9 0"/></svg>
+      </div>
+      <div class="minirow">
+        <div class="b mini" id="bPlus" title="加点">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </div>
+        <div class="b mini" id="bMinus" title="删掉最后一个点位">
+          <svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
+        </div>
+      </div>
+      <div class="b" id="bGear" title="参数">
+        <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/></svg>
+      </div>
+      <div class="count" id="count">0</div>
+      <div class="b" id="bChevron" title="折叠">
+        <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+    </div>
+
+    <!-- 参数面板 -->
+    <div class="sheet" id="sheet">
+      <div class="hd"><b>参数</b><button id="sClose">完成</button></div>
+      <div class="row"><span>点击间隔</span><span class="v" id="vIv">0.30 秒</span></div>
+      <input type="range" id="sIv" min="0.05" max="2" step="0.05" value="0.30" />
+      <div class="seg" id="seg">
+        <button data-m="0" class="on">点按</button>
+        <button data-m="1">长按</button>
+        <button data-m="2">滑动</button>
+      </div>
+      <div class="row"><span>按住时长</span><span class="v" id="vHold">0.60 秒</span></div>
+      <input type="range" id="sHold" min="0.1" max="2" step="0.05" value="0.6" disabled />
+      <div class="row"><span>滑动距离</span><span class="v" id="vSw">10%</span></div>
+      <input type="range" id="sSw" min="0.03" max="0.4" step="0.01" value="0.1" disabled />
+      <div class="row"><span>注入通道</span><span class="v" id="vChan">自动</span></div>
+      <div class="seg" id="chanSeg" style="margin-bottom:11px">
+        <button data-c="0" class="on">自动</button>
+        <button data-c="1">进程内</button>
+        <button data-c="2">HID</button>
+      </div>
+      <div class="sw"><span>Y 轴翻转（点偏了才开）</span><div class="toggle" id="tFlip"></div></div>
+      <div class="sw"><span>震动反馈</span><div class="toggle on" id="tHap"></div></div>
+      <button class="danger" id="sClear">清空全部点位</button>
+    </div>
+
+  </div>
+</div>
+
+<aside class="tips">
+  <h2>LazyTap 懒触 1.1</h2>
+  <div class="sub">注入式悬浮连点器 · 下面全都能真点，随便玩</div>
+
+  <div class="tip"><div class="k">1</div><div class="d"><b>点绿色电源键</b> 就开始连点。再点一下停。点位一直留着 —— 这就是你要的"开关"，不用取消重设。</div></div>
+  <div class="tip"><div class="k">2</div><div class="d"><b>＋ 加点、－ 删点</b>：＋ 之后点屏幕空白处，想加几个加几个；－ 每次删掉最后一个，长按竖条外区域没点位时它会变灰。</div></div>
+  <div class="tip"><div class="k">3</div><div class="d"><b>拖圆环</b> 挪位置，<b>点一下圆环</b> 单独开关那个点（变暗 = 停用），<b>长按圆环</b> 删除。</div></div>
+  <div class="tip"><div class="k">4</div><div class="d"><b>折叠成圆钮后</b>：<b>单击整颗球 = 起停</b>，<b>长按 = 展开</b>。拖动时不会误触发开关。</div></div>
+  <div class="tip"><div class="k">5</div><div class="d"><b>滑块图标</b> 开参数：间隔 0.05–2 秒、点按/长按/滑动、注入通道（自动 / 进程内 / HID）。</div></div>
+
+  <div class="badge"><i></i> 预览版 · 1.1 起默认走进程内注入，不再依赖 HID 权限</div>
+</aside>
+
+<script>
+(function(){
+  var screenEl = document.getElementById('screen');
+  var bar      = document.getElementById('bar');
+  var bPower   = document.getElementById('bPower');
+  var bPlus    = document.getElementById('bPlus');
+  var bMinus   = document.getElementById('bMinus');
+  var bGear    = document.getElementById('bGear');
+  var bChev    = document.getElementById('bChevron');
+  var countEl  = document.getElementById('count');
+  var sheet    = document.getElementById('sheet');
+
+  var S = {
+    running:false, collapsed:false,
+    interval:0.30, mode:0, hold:0.60, swipe:0.10,
+    flip:false, hap:true,
+    taps:0,
+    points:[{x:0.50,y:0.62,on:true}]
+  };
+
+  /* ---------- 点位 ---------- */
+  var marks = [];
+
+  function screenRect(){ return screenEl.getBoundingClientRect(); }
+
+  function drawMarkers(){
+    marks.forEach(function(m){ m.el.remove(); });
+    marks = S.points.map(function(p,i){
+      var el = document.createElement('div');
+      el.className = 'm' + (p.on ? '' : ' off');
+      el.textContent = (i+1);
+      el.style.left = (p.x*100) + '%';
+      el.style.top  = (p.y*100) + '%';
+      screenEl.appendChild(el);
+      bindMarker(el, p);
+      return {el:el, p:p};
+    });
+    bMinus.classList.toggle('dim', S.points.length === 0);
+  }
+
+  function syncMarkers(){
+    marks.forEach(function(m,i){
+      m.el.textContent = (i+1);
+      m.el.style.left = (m.p.x*100)+'%';
+      m.el.style.top  = (m.p.y*100)+'%';
+      m.el.classList.toggle('off', !m.p.on);
+    });
+  }
+
+  function bindMarker(el, p){
+    var drag=false, moved=false, sx=0, sy=0, ox=0, oy=0, lp=null;
+    el.addEventListener('pointerdown', function(e){
+      e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      drag=true; moved=false;
+      var r = screenRect();
+      sx=e.clientX; sy=e.clientY;
+      ox=p.x*r.width; oy=p.y*r.height;
+      lp = setTimeout(function(){
+        // 长按删除
+        var idx = S.points.indexOf(p);
+        if (idx >= 0){ S.points.splice(idx,1); drawMarkers(); buzz(18); }
+        drag=false;
+      }, 620);
+    });
+    el.addEventListener('pointermove', function(e){
+      if(!drag) return;
+      var dx=e.clientX-sx, dy=e.clientY-sy;
+      if (Math.abs(dx)>3 || Math.abs(dy)>3){ moved=true; clearTimeout(lp); }
+      var r = screenRect();
+      var nx = Math.min(r.width-6, Math.max(6, ox+dx));
+      var ny = Math.min(r.height-6, Math.max(6, oy+dy));
+      p.x = nx/r.width; p.y = ny/r.height;
+      el.style.left = (p.x*100)+'%';
+      el.style.top  = (p.y*100)+'%';
+    });
+    el.addEventListener('pointerup', function(e){
+      clearTimeout(lp);
+      if(!drag) return;
+      drag=false;
+      if(!moved){
+        p.on = !p.on;
+        el.classList.toggle('off', !p.on);
+        buzz(10);
+      }
+    });
+    el.addEventListener('pointercancel', function(){ clearTimeout(lp); drag=false; });
+  }
+
+  /* ---------- 点击动画 ---------- */
+  function ripple(x, y){
+    var d = document.createElement('div');
+    d.className='rip';
+    d.style.left=(x*100)+'%';
+    d.style.top =(y*100)+'%';
+    screenEl.appendChild(d);
+    setTimeout(function(){ d.remove(); }, 520);
+  }
+
+  /* ---------- 引擎 ---------- */
+  var next = [], timer=null;
+
+  function startEngine(){
+    stopEngine();
+    next = S.points.map(function(){ return 0; });
+    timer = setInterval(tick, 50);
+  }
+  function stopEngine(){ if(timer){ clearInterval(timer); timer=null; } }
+
+  function tick(){
+    if(!S.running) return;
+    var now = performance.now()/1000;
+    S.points.forEach(function(p,i){
+      if(!p.on) return;
+      if(next[i] === undefined) next[i]=0;
+      if(now < next[i]) return;
+      next[i] = now + S.interval;
+      fire(p);
+      S.taps++;
+    });
+    countEl.textContent = S.taps > 999 ? (S.taps/1000).toFixed(1)+'k' : S.taps;
+  }
+
+  function fire(p){
+    ripple(p.x, p.y);
+    var m = marks.filter(function(x){ return x.p === p; })[0];
+    if(m){
+      m.el.animate(
+        [{transform:'scale(1)'},{transform:'scale(.88)'},{transform:'scale(1)'}],
+        {duration:140, easing:'ease-out'}
+      );
+    }
+  }
+
+  function buzz(ms){
+    if(S.hap && navigator.vibrate) navigator.vibrate(ms);
+  }
+
+  /* ---------- 电源 ---------- */
+  bPower.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+  bPower.addEventListener('click', function(e){
+    e.stopPropagation();
+    S.running = !S.running;
+    bPower.classList.toggle('on', S.running);
+    buzz(12);
+    if(S.running) startEngine(); else stopEngine();
+  });
+
+  /* ---------- 加点 ---------- */
+  bPlus.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+  // 点一下 ＋ 直接在屏幕中心生成点位；中心已被占就按 8 个方向往外错开
+  function addPointAtCenter(){
+    var r = screenRect();
+    var cx = 0.5, cy = 0.5, occupied = 0;
+    S.points.forEach(function(p){
+      var dx = (p.x - cx) * r.width, dy = (p.y - cy) * r.height;
+      if (Math.sqrt(dx*dx + dy*dy) < 44) occupied++;
+    });
+    if (occupied > 0){
+      var radius = 60 * Math.ceil(occupied / 8);
+      var ang = ((occupied - 1) % 8) * Math.PI / 4 - Math.PI / 2;
+      cx += Math.cos(ang) * radius / r.width;
+      cy += Math.sin(ang) * radius / r.height;
+    }
+    cx = Math.min(0.985, Math.max(0.015, cx));
+    cy = Math.min(0.985, Math.max(0.015, cy));
+    S.points.push({x:cx, y:cy, on:true});
+    drawMarkers();
+    buzz(10);
+  }
+
+  bPlus.addEventListener('click', function(e){
+    e.stopPropagation();
+    if (barMoved) return;
+    addPointAtCenter();
+  });
+
+  /* ---------- 减点 ---------- */
+  bMinus.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+  bMinus.addEventListener('click', function(e){
+    e.stopPropagation();
+    if(!S.points.length) return;
+    S.points.pop();
+    drawMarkers();
+    buzz(14);
+  });
+
+  /* ---------- 参数面板 ---------- */
+  bGear.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+  bGear.addEventListener('click', function(e){
+    e.stopPropagation();
+    sheet.classList.toggle('open');
+  });
+  document.getElementById('sClose').addEventListener('click', function(){
+    sheet.classList.remove('open');
+  });
+
+  var sIv=document.getElementById('sIv'), vIv=document.getElementById('vIv');
+  var sHold=document.getElementById('sHold'), vHold=document.getElementById('vHold');
+  var sSw=document.getElementById('sSw'), vSw=document.getElementById('vSw');
+
+  sIv.addEventListener('input', function(){
+    S.interval = parseFloat(sIv.value);
+    vIv.textContent = S.interval.toFixed(2)+' 秒';
+  });
+  sHold.addEventListener('input', function(){
+    S.hold = parseFloat(sHold.value);
+    vHold.textContent = S.hold.toFixed(2)+' 秒';
+  });
+  sSw.addEventListener('input', function(){
+    S.swipe = parseFloat(sSw.value);
+    vSw.textContent = Math.round(S.swipe*100)+'%';
+  });
+
+  var vChan = document.getElementById('vChan');
+  var chanNames = ['自动','进程内','HID'];
+  document.querySelectorAll('#chanSeg button').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('#chanSeg button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+      vChan.textContent = chanNames[parseInt(b.dataset.c,10)];
+    });
+  });
+
+  document.querySelectorAll('#seg button').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('#seg button').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+      S.mode = parseInt(b.dataset.m,10);
+      sHold.disabled = S.mode !== 1;
+      sSw.disabled   = S.mode !== 2;
+    });
+  });
+
+  document.getElementById('tFlip').addEventListener('click', function(){
+    this.classList.toggle('on');
+    S.flip = this.classList.contains('on');
+  });
+  document.getElementById('tHap').addEventListener('click', function(){
+    this.classList.toggle('on');
+    S.hap = this.classList.contains('on');
+  });
+  document.getElementById('sClear').addEventListener('click', function(){
+    S.points.length = 0;
+    S.running = false;
+    bPower.classList.remove('on');
+    stopEngine();
+    drawMarkers();
+    buzz(20);
+  });
+
+  /* ---------- 折叠 ---------- */
+  bChev.addEventListener('pointerdown', function(e){ e.stopPropagation(); });
+  bChev.addEventListener('click', function(e){
+    e.stopPropagation();
+    S.collapsed = !S.collapsed;
+    bar.classList.toggle('collapsed', S.collapsed);
+    bChev.style.transform = S.collapsed ? 'rotate(180deg)' : '';
+  });
+
+  /* ---------- 拖动竖条 ---------- */
+  var barMoved = false;   // 本次触摸是「拖动」而非「点击」，回来时吞掉按钮 click
+  (function(){
+    var drag=false, moved=false, sx=0, sy=0, ox=0, oy=0;
+    bar.addEventListener('pointerdown', function(e){
+      drag=true; moved=false;
+      barMoved = false;
+      sx=e.clientX; sy=e.clientY;
+      ox=bar.offsetLeft; oy=bar.offsetTop;
+    });
+    bar.addEventListener('pointermove', function(e){
+      if(!drag) return;
+      // 超过阈值才进入拖动：这时才抢指针，按钮的 click 就不会再触发
+      if(!moved){
+        if(Math.abs(e.clientX-sx) < 5 && Math.abs(e.clientY-sy) < 5) return;
+        moved = true;
+        barMoved = true;
+        bar.classList.add('dragging');
+        try { bar.setPointerCapture(e.pointerId); } catch(_){}
+      }
+      var r = screenRect();
+      var nx = Math.min(r.width-bar.offsetWidth, Math.max(0, ox + (e.clientX-sx)));
+      var ny = Math.min(r.height-bar.offsetHeight, Math.max(50, oy + (e.clientY-sy)));
+      bar.style.left = nx+'px';
+      bar.style.top  = ny+'px';
+    });
+    bar.addEventListener('pointerup', function(){
+      if (moved){
+        // 靠近边缘吸附
+        var r = screenRect();
+        if (bar.offsetLeft + bar.offsetWidth/2 < r.width/2){
+          bar.style.left = '10px';
+        } else {
+          bar.style.left = (r.width - bar.offsetWidth - 10)+'px';
+        }
+      }
+      drag=false; moved=false;
+      bar.classList.remove('dragging');
+      setTimeout(function(){ barMoved = false; }, 260);
+    });
+  })();
+
+  drawMarkers();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+name: build
+
+on:
+  push:
+    branches: [ main, master, lazytap ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Theos + iOS SDK
+        run: |
+          brew install ldid xz || true
+          export THEOS=$HOME/theos
+          git clone --depth 1 --recursive https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/sdks"
+          curl -fsSL -o /tmp/sdks.tar.gz https://github.com/theos/sdks/archive/refs/heads/master.tar.gz
+          tar -xzf /tmp/sdks.tar.gz -C /tmp
+          cp -R /tmp/sdks-master/*.sdk "$THEOS/sdks/" || true
+          ls "$THEOS/sdks"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+
+      - name: 编译
+        run: |
+          make clean || true
+          make package FINALPACKAGE=1
+
+      - name: 收集产物
+        run: |
+          mkdir -p dist
+          # 只认打包暂存目录里那个真正会被注入的二进制（已由 ldid 签名）
+          DY=".theos/_/Library/MobileSubstrate/DynamicLibraries/LazyTap.dylib"
+          if [ ! -f "$DY" ]; then
+            # 退路：obj 目录里的成品，但排除 .dSYM 里的调试符号文件
+            DY=$(find .theos/obj -maxdepth 2 -type f -name "LazyTap.dylib" ! -path "*.dSYM/*" | head -n 1)
+          fi
+          if [ ! -f "$DY" ]; then echo "未找到 dylib，构建失败"; exit 1; fi
+          echo "dylib = $DY"
+          file "$DY"
+          # 文件类型校验：必须是 MH_DYLIB，不能是 dSYM 伴生文件
+          if file "$DY" | grep -qi "companion file"; then echo "取到了 dSYM，终止"; exit 1; fi
+          cp "$DY" dist/LazyTap.dylib
+          cp packages/*.deb dist/ 2>/dev/null || true
+          lipo -info dist/LazyTap.dylib || true
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LazyTap-dylib
+          path: dist/*
+
+      - name: 回推产物到 dist 分支（免登录取货）
+        run: |
+          base64 -i dist/LazyTap.dylib -o dist/LazyTap.dylib.b64
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B dist
+          git add -f dist/LazyTap.dylib dist/LazyTap.dylib.b64 dist/*.deb || true
+          git commit -m "build: LazyTap ${GITHUB_SHA::7}" || echo "no change"
+          git push -f origin dist

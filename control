@@ -1,0 +1,9 @@
+Package: com.xt.lazytap
+Name: LazyTap
+Version: 1.2.0
+Architecture: iphoneos-arm64
+Description: 悬浮竖条连点器 · 一键开关 · 加减点 · 进程内触摸 + WebView JS 双通道
+Maintainer: xt
+Author: xt
+Section: Tweaks
+Depends: firmware (>= 14.0)

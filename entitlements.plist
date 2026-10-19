@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 触摸注入必需：不签这两个，事件能建出来但派发会被系统丢掉 -->
+    <key>com.apple.private.hid.client.event-dispatch</key>
+    <true/>
+    <key>com.apple.private.hid.client.event-filter</key>
+    <true/>
+    <key>com.apple.private.hid.client.event-monitor</key>
+    <true/>
+    <key>com.apple.security.exception.mach-lookup.global-name</key>
+    <array>
+        <string>com.apple.iohid.server</string>
+    </array>
+</dict>
+</plist>

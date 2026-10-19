@@ -1,0 +1,5 @@
+.theos/
+packages/
+dist/LazyTap.dylib
+*.o
+.DS_Store
