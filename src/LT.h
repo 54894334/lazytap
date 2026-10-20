@@ -5,8 +5,13 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 
-#define LT_VERSION @"1.2.0"
+#define LT_VERSION @"1.3.0"
 #define LT_PREFS_FILE @"LazyTap.json"
+
+/// 当前加载在 SpringBoard（桌面进程）里。
+/// 为真时整个插件切到「全局模式」：悬浮窗压在所有 App 之上，点击一律走内核 HID，
+/// 所以装一次就能给任何 App 连点，不需要逐个 App 注入。
+BOOL LTIsSpringBoard(void);
 
 #pragma mark - 触摸注入通道
 

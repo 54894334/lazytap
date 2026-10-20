@@ -50,11 +50,22 @@ static void LTHaptic(UInt32 sid) {
 @end
 
 @implementation LTOverlayWindow
-// 空白处返回 nil → 交给下层 App 自己的窗口，绝不抢触摸
+// 空白处返回 nil → 交给下层窗口，绝不抢触摸。
+// 全局模式（SpringBoard）下这条更重要：我们这层窗压在所有 App 之上，
+// 一旦它认领了事件，前台 App 就再也收不到那一次点击。
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
     if (!hit || hit == self) return nil;
     if (hit == self.rootViewController.view) return nil;
+
+    // 运行中点位标记只负责显示，不能吃触摸：HID 打在自己的点位上时，
+    // 命中判定会先落到这一层，被吃掉就表现为「计数在涨、游戏没反应」。
+    if (LTIsSpringBoard() && [LTConfig shared].running) {
+        Class mk = NSClassFromString(@"LTMarkerView");
+        for (UIView *v = hit; v; v = v.superview) {
+            if (mk && [v isKindOfClass:mk]) return nil;
+        }
+    }
     return hit;
 }
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event { return YES; }
@@ -65,7 +76,12 @@ static void LTHaptic(UInt32 sid) {
 
 @implementation LTRootVC
 - (UIStatusBarStyle)preferredStatusBarStyle { return UIStatusBarStyleLightContent; }
-- (BOOL)shouldAutorotate { return YES; }
+// 全局模式下必须锁竖屏：HID 的 digitizer 坐标是以竖屏为基准的绝对坐标，
+// 窗口要是跟着设备转，标点位置就会和实际落点错开 90°。锁竖屏后一一对应。
+- (BOOL)shouldAutorotate { return LTIsSpringBoard() ? NO : YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return LTIsSpringBoard() ? UIInterfaceOrientationMaskPortrait : UIInterfaceOrientationMaskAll;
+}
 @end
 
 #pragma mark - 点位标记
@@ -600,16 +616,43 @@ static void LTHaptic(UInt32 sid) {
 - (void)installWhenReady {
     if (self.win) return;
 
+    BOOL sb = LTIsSpringBoard();
     UIApplication *app = [UIApplication sharedApplication];
-    if (app.windows.count == 0) {
+
+    // SpringBoard 不用 UIApplication 管自己的窗口，app.windows 常年是空的：
+    // 这里要是一直等下去就永远装不上，所以全局模式直接跳过这一步。
+    if (!sb && app.windows.count == 0) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
                        dispatch_get_main_queue(), ^{ [self installWhenReady]; });
         return;
     }
 
     CGRect f = [UIScreen mainScreen].bounds;
-    self.win = [[LTOverlayWindow alloc] initWithFrame:f];
-    self.win.windowLevel = UIWindowLevelAlert + 1000;
+    if (f.size.width < 1.0 || f.size.height < 1.0) f = CGRectMake(0, 0, 390, 844);
+
+    UIWindow *win = nil;
+    if (sb) {
+        // iOS 13 之后没挂 UIWindowScene 的窗口不显示。SpringBoard 自己的 scene 是
+        // _SBWindowScene（UIWindowScene 子类），直接按基类取即可。
+        UIWindowScene *scene = nil;
+        for (UIScene *s in app.connectedScenes) {
+            if ([s isKindOfClass:[UIWindowScene class]]) { scene = (UIWindowScene *)s; break; }
+        }
+        if (!scene) {
+            for (UIWindow *w in app.windows) {
+                if (w.windowScene) { scene = w.windowScene; break; }
+            }
+        }
+        if (scene) win = [[LTOverlayWindow alloc] initWithWindowScene:scene];
+        if (!win)  win = [[LTOverlayWindow alloc] initWithFrame:f];
+    } else {
+        win = [[LTOverlayWindow alloc] initWithFrame:f];
+    }
+
+    self.win = win;
+    // 全局模式要压过 SpringBoard 的状态栏、通知、控制中心、键盘（那些都在 2000 上下），
+    // 但也不能 makeKeyAndVisible —— 抢了 key window 会让键盘 / 弹窗行为异常。
+    self.win.windowLevel = sb ? 10000000.0 : (UIWindowLevelAlert + 1000);
     self.win.backgroundColor = [UIColor clearColor];
     self.win.rootViewController = [LTRootVC new];
     self.win.rootViewController.view.backgroundColor = [UIColor clearColor];
@@ -973,10 +1016,18 @@ static void LTHaptic(UInt32 sid) {
         return;
     }
     c.running = !c.running;
-    [c saveSoon];
 
-    if (c.running) [self startEngine];
-    else [self stopEngine];
+    if (c.running) {
+        // 面板挡住半个屏幕，开始前先收掉
+        if (self.panel) [self toggleSettings];
+        // 全局模式：展开的竖条有 66×200，压在游戏上太挡视线，开跑就折成小球
+        if (LTIsSpringBoard() && !c.collapsed) [self toggleCollapse];
+        [c saveSoon];
+        [self startEngine];
+    } else {
+        [c saveSoon];
+        [self stopEngine];
+    }
 
     [self.bar refresh];
     NSLog(@"[LazyTap] running=%d · %@", c.running, LTTapDiagnose());

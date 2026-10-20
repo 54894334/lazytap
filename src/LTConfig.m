@@ -46,6 +46,19 @@
 }
 
 + (NSString *)path {
+    // SpringBoard 的 Documents 指向系统目录，且重装 / 清缓存容易丢；
+    // 放到 /var/mobile/Library/ 下，一次配置对所有 App 生效（全局模式本来就只有一套点位）。
+    if (LTIsSpringBoard()) {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSString *dir = @"/var/mobile/Library/Preferences";
+        if (![fm isWritableFileAtPath:dir]) {
+            dir = @"/var/mobile/Library/LazyTap";
+            [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
+        }
+        if ([fm isWritableFileAtPath:dir]) {
+            return [dir stringByAppendingPathComponent:LT_PREFS_FILE];
+        }
+    }
     NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *doc = dirs.count ? dirs.firstObject : NSTemporaryDirectory();
     return [doc stringByAppendingPathComponent:LT_PREFS_FILE];
@@ -66,6 +79,11 @@
     c.barNorm = CGPointMake(0.93, 0.42);
     c.coordScale = 1.0;
     c.tapChannel = LTTapChannelAuto;
+    // 全局模式下默认折成小球：竖条展开有 66×200，压在游戏上太挡视线
+    if (LTIsSpringBoard()) {
+        c.collapsed = YES;
+        c.tapChannel = LTTapChannelHID;
+    }
 
     NSData *raw = [NSData dataWithContentsOfFile:[LTConfig path]];
     if (raw) {

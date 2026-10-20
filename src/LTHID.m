@@ -235,7 +235,9 @@ void LTTapNormalized(CGPoint p, NSTimeInterval hold) {
     LTTapChannel ch = LTTapGetChannel();
     CGPoint pts = lt_pts(p);
 
-    if (ch == LTTapChannelHID) {
+    // 全局模式（跑在 SpringBoard 里）只有 HID 一条路：进程内合成打不到别的 App。
+    // 此时不看面板上的通道设置，免得用户误切到「进程内」后完全没反应。
+    if (ch == LTTapChannelHID || LTIsSpringBoard()) {
         lt_hid_tap(pts, hold);
         return;
     }
@@ -257,7 +259,7 @@ void LTSwipeNormalized(CGPoint from, CGPoint to, NSTimeInterval duration) {
     CGPoint a = lt_pts(from);
     CGPoint b = lt_pts(to);
 
-    if (ch == LTTapChannelHID) {
+    if (ch == LTTapChannelHID || LTIsSpringBoard()) {
         double k = lt_coord_scale();
         CGPoint pa = CGPointMake(a.x * k, a.y * k);
         CGPoint pb = CGPointMake(b.x * k, b.y * k);

@@ -230,16 +230,16 @@
 </div>
 
 <aside class="tips">
-  <h2>LazyTap 懒触 1.1</h2>
+  <h2>LazyTap 懒触 1.2</h2>
   <div class="sub">注入式悬浮连点器 · 下面全都能真点，随便玩</div>
 
   <div class="tip"><div class="k">1</div><div class="d"><b>点绿色电源键</b> 就开始连点。再点一下停。点位一直留着 —— 这就是你要的"开关"，不用取消重设。</div></div>
-  <div class="tip"><div class="k">2</div><div class="d"><b>＋ 加点、－ 删点</b>：＋ 之后点屏幕空白处，想加几个加几个；－ 每次删掉最后一个，长按竖条外区域没点位时它会变灰。</div></div>
+  <div class="tip"><div class="k">2</div><div class="d"><b>＋ 加点、－ 删点</b>：点 ＋ 屏幕正中直接冒出一个点位，拖到要点的位置就行，想加几个加几个；－ 每次删掉最后一个，没点位时它会变灰。</div></div>
   <div class="tip"><div class="k">3</div><div class="d"><b>拖圆环</b> 挪位置，<b>点一下圆环</b> 单独开关那个点（变暗 = 停用），<b>长按圆环</b> 删除。</div></div>
   <div class="tip"><div class="k">4</div><div class="d"><b>折叠成圆钮后</b>：<b>单击整颗球 = 起停</b>，<b>长按 = 展开</b>。拖动时不会误触发开关。</div></div>
   <div class="tip"><div class="k">5</div><div class="d"><b>滑块图标</b> 开参数：间隔 0.05–2 秒、点按/长按/滑动、注入通道（自动 / 进程内 / HID）。</div></div>
 
-  <div class="badge"><i></i> 预览版 · 1.1 起默认走进程内注入，不再依赖 HID 权限</div>
+  <div class="badge"><i></i> 预览版 · 1.2 起 ＋/－ 竖排、拖动不再误触开关、点 ＋ 直接中心加点</div>
 </aside>
 
 <script>
@@ -418,6 +418,9 @@
     if (barMoved) return;
     addPointAtCenter();
   });
+
+  // 截图/演示用：preview.html?demo=1 自动点一次 ＋
+  if (/[?&]demo=1/.test(location.search)) setTimeout(addPointAtCenter, 260);
 
   /* ---------- 减点 ---------- */
   bMinus.addEventListener('pointerdown', function(e){ e.stopPropagation(); });

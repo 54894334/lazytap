@@ -1,7 +1,7 @@
 {
     Filter = {
         Bundles = (
-            "com.xt.lazytap.directload.only"
+            "com.apple.springboard"
         );
     };
 }

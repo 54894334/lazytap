@@ -62,6 +62,10 @@
 #pragma mark - 工具
 
 static UIWindow *lt_host_window(void) {
+    // 全局模式：我们跑在 SpringBoard 里，进程内 UITouch 只能点到 SpringBoard 自己的视图，
+    // 前台 App 一个字节都收不到。返回 nil，让 LTTapNormalized 自动退回 HID 通道。
+    if (LTIsSpringBoard()) return nil;
+
     UIApplication *app = [UIApplication sharedApplication];
     NSArray<UIWindow *> *all = app.windows;
     Class overlayCls = NSClassFromString(@"LTOverlayWindow");
