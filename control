@@ -1,6 +1,6 @@
 Package: com.xt.lazytap
 Name: LazyTap
-Version: 1.3.0
+Version: 1.3.1
 Architecture: iphoneos-arm64
 Description: 全局悬浮竖条连点器 · 注入 SpringBoard 后对任意 App 生效 · 一键开关 · 加减点
 Maintainer: xt

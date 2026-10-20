@@ -13,6 +13,7 @@
 //    · 计数标签只在数值变化时更新；脉冲动画复用 layer；拖动时合并写盘
 //
 #import "LT.h"
+#import "LTSafety.h"
 #import <QuartzCore/QuartzCore.h>
 #import <AudioToolbox/AudioToolbox.h>
 
@@ -668,6 +669,13 @@ static void LTHaptic(UInt32 sid) {
                                                object:nil];
 
     NSLog(@"[LazyTap] v%@ 已装载 · %@", LT_VERSION, LTTapDiagnose());
+
+    // 存活 6 秒才算这一次启动成功。装在启动瞬间就崩的情况下，
+    // 计数会继续累加，第三次之后进安全模式，不会形成崩溃循环。
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (self.win) LTBootGuardMarkHealthy();
+    });
 }
 
 - (void)relayout {
@@ -1072,7 +1080,15 @@ static void LTHaptic(UInt32 sid) {
                               2ull * NSEC_PER_MSEC);
 
     __weak typeof(self) ws = self;
-    dispatch_source_set_event_handler(_timer, ^{ [ws engineTick]; });
+    dispatch_source_set_event_handler(_timer, ^{
+        // tick 抛未捕获异常会直接杀掉 SpringBoard，这里兜住并停掉自己
+        @try {
+            [ws engineTick];
+        } @catch (NSException *e) {
+            NSLog(@"[LazyTap] 引擎 tick 异常，自动停止：%@ %@", e.name, e.reason);
+            dispatch_async(dispatch_get_main_queue(), ^{ [ws stopEngine]; });
+        }
+    });
     dispatch_resume(_timer);
 }
 

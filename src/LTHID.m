@@ -85,8 +85,19 @@ static CGSize lt_screen_points(void) {
     if (gScreenPts.width > 1.0 && gScreenPts.height > 1.0) return gScreenPts;
     if ([NSThread isMainThread]) {
         lt_refresh_screen();
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), ^{ lt_refresh_screen(); });
+        return gScreenPts;
+    }
+
+    // 后台线程绝对不许 dispatch_sync 到主队列。
+    // 主线程可能在 dispatch_sync 到引擎队列（startEngine 重建 buffer 时就是这样），
+    // 这边再 sync 回主队列就构成 ABBA 互等 —— 桌面直接卡死，
+    // 30 秒后 watchdog 杀掉 SpringBoard，用户看到的是黑屏转圈重启。
+    // 主线程在 lt_load 和每轮开跑前都会刷新缓存，这里只作兜底。
+    CGRect b = [UIScreen mainScreen].bounds;
+    if (b.size.width > 1.0 && b.size.height > 1.0) {
+        gScreenPts = b.size;
+    } else if (gScreenPts.width < 1.0) {
+        gScreenPts = CGSizeMake(390, 844);      // 完全取不到时的保守默认，宁可偏也不卡死
     }
     return gScreenPts;
 }
@@ -180,38 +191,45 @@ LTTapChannel LTTapGetChannel(void) {
 static void lt_hid_finger(CGPoint px, BOOL down, uint32_t identity) {
     if (!pFinger || !pDispatch || !gClient) return;
 
-    uint64_t ts = mach_absolute_time();
-    Boolean r = down ? 1 : 0;
+    // 这几个是私有 C 函数，签名对不上或参数越界时是「段错误」级别的事故，
+    // 在 SpringBoard 里那就等于桌面重启。兜一层异常（挡住的是 ObjC 异常和
+    // 部分 libobjc 转抛的情况，纯 SIGSEGV 挡不住，但至少不会因为参数异常带崩）。
+    @try {
+        uint64_t ts = mach_absolute_time();
+        Boolean r = down ? 1 : 0;
 
-    IOHIDEventRef finger = pFinger(kCFAllocatorDefault, ts,
-                                   1, identity, 0x3,
-                                   px.x, px.y, 0,
-                                   0, 0,
-                                   1.0, 1.0, 0.0,
-                                   r, r, 0);
-    if (!finger) return;
+        IOHIDEventRef finger = pFinger(kCFAllocatorDefault, ts,
+                                       1, identity, 0x3,
+                                       px.x, px.y, 0,
+                                       0, 0,
+                                       1.0, 1.0, 0.0,
+                                       r, r, 0);
+        if (!finger) return;
 
-    if (pSetInt) pSetInt(finger, kLTFieldIsDisplayIntegrated, 1);
+        if (pSetInt) pSetInt(finger, kLTFieldIsDisplayIntegrated, 1);
 
-    IOHIDEventRef parent = NULL;
-    if (pDigitizer && pAppend) {
-        parent = pDigitizer(kCFAllocatorDefault, ts,
-                            kLTTransducerHand, 0, 0, 0x3, 0,
-                            px.x, px.y, 0, 0, 0,
-                            1, 0, 0);
-        if (parent) {
-            if (pSetInt) pSetInt(parent, kLTFieldIsDisplayIntegrated, 1);
-            pAppend(parent, finger);
+        IOHIDEventRef parent = NULL;
+        if (pDigitizer && pAppend) {
+            parent = pDigitizer(kCFAllocatorDefault, ts,
+                                kLTTransducerHand, 0, 0, 0x3, 0,
+                                px.x, px.y, 0, 0, 0,
+                                1, 0, 0);
+            if (parent) {
+                if (pSetInt) pSetInt(parent, kLTFieldIsDisplayIntegrated, 1);
+                pAppend(parent, finger);
+            }
         }
-    }
 
-    if (parent) {
-        pDispatch(gClient, parent);
-        CFRelease(parent);
-    } else {
-        pDispatch(gClient, finger);
+        if (parent) {
+            pDispatch(gClient, parent);
+            CFRelease(parent);
+        } else {
+            pDispatch(gClient, finger);
+        }
+        CFRelease(finger);
+    } @catch (NSException *e) {
+        NSLog(@"[LazyTap] HID 派发异常：%@", e.reason);
     }
-    CFRelease(finger);
 }
 
 static void lt_hid_tap(CGPoint pts, NSTimeInterval hold) {

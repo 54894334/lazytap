@@ -5,7 +5,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 
-#define LT_VERSION @"1.3.0"
+#define LT_VERSION @"1.3.1"
 #define LT_PREFS_FILE @"LazyTap.json"
 
 /// 当前加载在 SpringBoard（桌面进程）里。
@@ -71,6 +71,7 @@ void LTUITouchSwipeAtWindowPoint(CGPoint from, CGPoint to, NSTimeInterval durati
 @property (nonatomic) NSInteger tapChannel;    // LTTapChannel
 
 + (instancetype)shared;
++ (NSString *)path;        // 配置文件路径（全局模式落在 /var/mobile/Library/）
 - (void)save;
 - (void)saveSoon;          // 合并高频写盘（拖动时用）
 - (void)reset;
