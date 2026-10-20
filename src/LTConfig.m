@@ -45,26 +45,77 @@
     return ins;
 }
 
+// 真写一个探测文件来判断可写。isWritableFileAtPath 在沙盒里会把
+// /var/mobile/Library/Preferences 报成可写，实际写的时候才被拒 —— 信它会踩坑。
+static BOOL lt_probe_writable(NSString *dir) {
+    if (dir.length == 0) return NO;
+    NSString *p = [dir stringByAppendingPathComponent:@".lazytap_probe"];
+    NSData *d = [@"1" dataUsingEncoding:NSUTF8StringEncoding];
+    if (![d writeToFile:p atomically:YES]) return NO;
+    [[NSFileManager defaultManager] removeItemAtPath:p error:NULL];
+    return YES;
+}
+
 + (NSString *)path {
-    // SpringBoard 的 Documents 指向系统目录，且重装 / 清缓存容易丢；
-    // 放到 /var/mobile/Library/ 下，一次配置对所有 App 生效（全局模式本来就只有一套点位）。
-    if (LTIsSpringBoard()) {
+    static NSString *cached;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
         NSFileManager *fm = [NSFileManager defaultManager];
-        NSString *dir = @"/var/mobile/Library/Preferences";
-        if (![fm isWritableFileAtPath:dir]) {
-            dir = @"/var/mobile/Library/LazyTap";
+
+        // 1) 共享位置优先。
+        //    TrollFools 注入的 App 如果带 no-sandbox / platform-application，
+        //    这里就写得进去 —— 那样「标一次点位」能被所有注入过的 App 共用，
+        //    不用在每个 App 里重新标一遍。
+        NSArray *sharedDirs = @[ @"/var/mobile/Library/Preferences",
+                                 @"/var/mobile/Library/LazyTap" ];
+        for (NSString *dir in sharedDirs) {
+            if (![fm fileExistsAtPath:dir]) continue;
+            if (lt_probe_writable(dir)) {
+                cached = [dir stringByAppendingPathComponent:LT_PREFS_FILE];
+                NSLog(@"[LazyTap] 配置走共享位置 %@", cached);
+                return;
+            }
+        }
+
+        // 2) 桌面进程没有自己的 Documents，必须造一个全局目录
+        if (LTIsSpringBoard()) {
+            NSString *dir = @"/var/mobile/Library/LazyTap";
             [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:nil error:NULL];
+            if (lt_probe_writable(dir)) {
+                cached = [dir stringByAppendingPathComponent:LT_PREFS_FILE];
+                NSLog(@"[LazyTap] 配置走 %@", cached);
+                return;
+            }
         }
-        if ([fm isWritableFileAtPath:dir]) {
-            return [dir stringByAppendingPathComponent:LT_PREFS_FILE];
-        }
-    }
-    NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    NSString *doc = dirs.count ? dirs.firstObject : NSTemporaryDirectory();
-    return [doc stringByAppendingPathComponent:LT_PREFS_FILE];
+
+        // 3) 退回沙盒（注入普通 App 且没有 no-sandbox 时的常态）
+        //    这种情况下每个 App 各自一套点位 —— 物理隔离，没法绕过。
+        NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *doc = dirs.count ? dirs.firstObject : NSTemporaryDirectory();
+        cached = [doc stringByAppendingPathComponent:LT_PREFS_FILE];
+        NSLog(@"[LazyTap] 配置走沙盒 %@", cached);
+    });
+    return cached;
 }
 
 + (instancetype)readFromDisk {
+    // 升级迁移：共享位置还没有配置，但沙盒里留着 1.2.x 的老配置 → 搬过去，
+    // 免得用户从「注入单个 App」升上来时点位全丢。
+    {
+        NSString *target = [LTConfig path];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if (target && ![fm fileExistsAtPath:target]) {
+            NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+            NSString *doc = dirs.count ? dirs.firstObject : nil;
+            NSString *old = doc ? [doc stringByAppendingPathComponent:LT_PREFS_FILE] : nil;
+            if (old && ![old isEqualToString:target] && [fm fileExistsAtPath:old]) {
+                if ([fm copyItemAtPath:old toPath:target error:NULL]) {
+                    NSLog(@"[LazyTap] 已把沙盒老配置迁移到 %@", target);
+                }
+            }
+        }
+    }
+
     LTConfig *c = [LTConfig new];
     c.points = [NSMutableArray array];
     c.running = NO;

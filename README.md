@@ -1,7 +1,74 @@
-# LazyTap · 懒触 1.3.0
+# LazyTap · 懒触 1.3.2
 
 TrollStore 环境用的 **注入式悬浮连点器**（无越狱）。核心解决的就一件事：
 **设置好点位之后，用开关直接起停，不用"取消 → 重设 → 重启"。**
+
+## 1.3.2：纯 TrollStore 环境的配置共享探测
+
+纯 TrollStore 只能 TrollFools 注入 App，而每个 App 有独立沙盒 —— 逻辑上会变成
+「注一个 App 就要标一次点位」。1.3.2 先试着绕开这个：
+
+- 启动时**真写一个探测文件**去试 `/var/mobile/Library/Preferences` 和 `/var/mobile/Library/LazyTap`
+  （不能用 `isWritableFileAtPath`，沙盒会把它骗成 YES，真写的时候才拒）。
+  写得进去 → 所有注入过的 App 共用同一份 `LazyTap.json`，标一次就够。
+- 写不进去 → 退回各自沙盒 Documents，各 App 一套（这时只能各标一次）。
+- 兼容升级：共享位置还没有配置、沙盒里留着 1.2.x 老配置时，自动搬过去。
+
+日志里搜 `[LazyTap] 配置走` 就知道自己落在哪一档。
+
+## 1.3.1：会不会白苹果？不会，但要把「桌面崩溃循环」防住
+
+先说结论：**这个 dylib 不可能造成白苹果。**
+
+白苹果（卡在苹果 logo 起不来）的成因只有一类：**系统分区或启动链被改坏** ——
+改 `/System` 下的二进制、改 `LaunchDaemons`、装内核扩展、OTA 升级装一半断电。
+这个工程全部代码都在一个 dylib 里，只活在 SpringBoard 进程的内存中，
+不写系统分区、不碰 launchd、不碰内核，进程一退全部消失。
+
+但「不会白苹果」不等于「没风险」，要分清三种后果：
+
+| 发生什么 | 你会看到 | 严重度 |
+|---|---|---|
+| dylib 运行时崩一次 | 黑屏转圈 3~10 秒，回锁屏（respring） | 可忽略 |
+| dylib 在启动期崩，反复崩 | 屏幕一直黑/转圈，进不去桌面（崩溃循环） | 要动手恢复 |
+| hitTest 判断错，吞掉触摸 | 桌面点不动（软砖），其他功能正常 | 强制重启 |
+| 私有 IOHID 参数严重错乱 | 理论上可能内核 panic 重启 | 极罕见 |
+
+**唯一的真麻烦是第二行：崩溃循环。** 因为 launchd 会不停把 SpringBoard 拉起来，
+用户会以为系统坏了。1.3.1 专门为它做了闸门。
+
+### 1.3.1 做的四道保险
+
+1. **启动闸门**（`src/LTSafety.m`）——
+   每次 dylib 加载先把计数 +1 并落盘；悬浮条装好且**存活满 6 秒**才清零。
+   计数超过 3 判定「上次是启动期崩溃」，**本次只写日志，什么都不装**。
+   崩溃循环到这里就断了，桌面一定能起来。
+2. **入口全包 `@try`** —— constructor 里抛异常会直接把进程带走，现在兜住并安静退出。
+3. **tick 异常自停** —— 引擎 tick 抛异常时停掉自己，不是把 SpringBoard 一起带走。
+4. **干掉了一处真死锁** —— `lt_screen_points()` 原来在后台线程会
+   `dispatch_sync` 回主队列，而主线程可能正 `dispatch_sync` 到引擎队列，
+   两个队列互等 → 桌面整个卡死 → 30 秒后 watchdog 杀进程。
+   现在后台线程只读缓存，永不 sync 回主队列。
+
+### 进了安全模式怎么恢复
+
+安全模式的表现就是：**装上之后桌面什么也没出现，但系统一切正常**。
+
+```bash
+# 删掉计数文件（Filza / SSH 都行），下次注入就恢复正常
+rm -f /var/mobile/Library/Preferences/LazyTap.boot
+killall -9 SpringBoard
+```
+
+### 彻底卸载（三条路，按你的环境选一条）
+
+| 环境 | 怎么卸 |
+|---|---|
+| 越狱 + Sileo / Zebra | 包列表里卸载 `com.xt.lazytap`，自动 respring |
+| TrollStore + TrollFools | 打开 TrollFools → SpringBoard → 移除 `LazyTap` 注入 |
+| 什么都进不去 | Filza / SSH 删 `/Library/MobileSubstrate/DynamicLibraries/LazyTap.dylib` 和同名 `.plist`，然后 `killall -9 SpringBoard` |
+
+只要还能进安全模式（Filza/SSH 可用），就一定救得回来，不存在「只能刷机」。
 
 ## 1.3.0：注入桌面，一次装好，所有 App 通用
 
@@ -115,22 +182,44 @@ dylib 自己签名里的 entitlements 不生效 —— 派发被静默丢弃。
 坐标空间默认是**屏幕点**。若真机上发现点击整体偏移（比如落在 1/3 处），
 说明该机型要像素坐标：改 `Documents/LazyTap.json` 里的 `coordScale` 为 `3`。
 
-## 怎么装
+## 怎么装（按环境选，别硬试）
 
-**必须注入到 SpringBoard（桌面）**，不是某个目标 App。
+### A. 纯 TrollStore（不越狱）—— 只能注入 App，注入不了桌面
 
-### 方式一：装 deb（最省事，推荐）
+**先把话说清楚**：SpringBoard.app 位于 **SSV 只读系统卷**，纯 TrollStore 没有任何手段写进去
+（写 SSV 要么越狱，要么依赖特定版本的内核漏洞）。所以「装一次、所有 App 生效」在纯 TrollStore 下
+**不存在**——不是我偷懒，是文件系统层面就堵死了。
 
-把 `com.xt.lazytap_1.3.0_iphoneos-arm64.deb` 用 **TrollStore** 打开安装。
-dylib 安装到 `Library/MobileSubstrate/DynamicLibraries/`，配套 plist 的 Filter 只匹配
-`com.apple.springboard`，所以只会进桌面进程，不会污染别的 App。装完自动 respring。
+能做到的是：**用 TrollFools 批量注入你要用的 App**，注过的 App 里都有悬浮条。
 
-### 方式二：TrollFools 注入
+1. 把 `LazyTap.dylib` 存到「文件」App（AirDrop / 微信传过来都行）
+2. 打开 **TrollFools**（在 TrollStore 里搜装）
+3. 点右上角 `＋` → **多选**要连点的 App（游戏、抖音…一次可以选多个）
+4. 注入项选 `LazyTap.dylib` → 确认，它会自动重签重装
+5. 打开其中任意一个 App，右侧出现竖条 → 长按展开、点 ＋ 加点、点电源开跑
 
-TrollFools → 打开「显示系统应用」→ 选 **SpringBoard**（列表里是「桌面 / Home Screen」）
-→ 注入 `LazyTap.dylib` → 它会自动重启桌面。
+**这一档的局限（物理限制）**
 
-### 装好之后
+| 项 | 情况 |
+|---|---|
+| 没注入过的 App | 用不了 |
+| 配置共享 | 看 TrollFools 有没有给 App 留 `no-sandbox`。1.3.2 启动时会探测，日志里是「配置走共享位置」就全 App 共用一套点位；是「配置走沙盒」就每个 App 各自一套，得各标一次 |
+| App 更新 | 注入会丢，得重新注一次 |
+| 触摸通道 | 走**进程内合成**（不需要权限，1.2.0 真机验证过），点的是当前 App 自己 |
+
+### B. 越狱（有 Sileo / Zebra）—— 一次装好，全局生效
+
+把 `com.xt.lazytap_1.3.2_iphoneos-arm64.deb` 用 Sileo / Zebra 打开安装，自动 respring。
+dylib 装到 `Library/MobileSubstrate/DynamicLibraries/`，配套 plist 的 Filter 只匹配
+`com.apple.springboard`，只进桌面进程。
+
+### C. TrollFools 里能选到 SpringBoard 的话
+
+个别 iOS 15.x（有 MDC / Fugu 一类漏洞）在纯 TrollStore 下**有可能**写到系统卷。
+TrollFools → 打开「显示系统应用」→ 看 **SpringBoard** 能不能选、注入后是否提示成功。
+成功就按 B 的用法走（全局生效）；报错/闪退就说明你的系统盘是只读的，老老实实用 A。
+
+### 装好之后（B / C 生效时的样子）
 
 1. 桌面右侧出现一颗绿色小球（默认折叠）
 2. **长按小球展开** → ＋ 加点（点在屏幕正中，可拖）、－ 减点、齿轮调间隔/模式

@@ -5,7 +5,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 
-#define LT_VERSION @"1.3.1"
+#define LT_VERSION @"1.3.2"
 #define LT_PREFS_FILE @"LazyTap.json"
 
 /// 当前加载在 SpringBoard（桌面进程）里。
