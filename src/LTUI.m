@@ -630,7 +630,7 @@ static void LTHaptic(UInt32 sid) {
     CGRect f = [UIScreen mainScreen].bounds;
     if (f.size.width < 1.0 || f.size.height < 1.0) f = CGRectMake(0, 0, 390, 844);
 
-    UIWindow *win = nil;
+    LTOverlayWindow *win = nil;
     if (sb) {
         // iOS 13 之后没挂 UIWindowScene 的窗口不显示。SpringBoard 自己的 scene 是
         // _SBWindowScene（UIWindowScene 子类），直接按基类取即可。
