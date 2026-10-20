@@ -1,7 +1,35 @@
-# LazyTap · 懒触 1.2.0
+# LazyTap · 懒触 1.3.0
 
 TrollStore 环境用的 **注入式悬浮连点器**（无越狱）。核心解决的就一件事：
 **设置好点位之后，用开关直接起停，不用"取消 → 重设 → 重启"。**
+
+## 1.3.0：注入桌面，一次装好，所有 App 通用
+
+1.2.0 是注入到**某个 App** 里的，只能在那个 App 内点。想全局用就得给每个 App 注入一遍，不现实。
+1.3.0 改成注入 **SpringBoard（桌面进程）**：竖条浮在所有 App 之上，点击走内核 HID 直接打进系统。
+
+| 项 | 注入普通 App（1.2.0） | 注入 SpringBoard（1.3.0） |
+|---|---|---|
+| 生效范围 | 只有被注入的那个 App | **所有 App**，切过去竖条还在 |
+| 悬浮条 | 挂在宿主 App 窗口上，App 一退就没 | 窗口层级 `10000000`，压过 App / 状态栏 / 键盘 / 控制中心 |
+| 触摸通道 | 进程内合成 `UITouch`（不需权限） | 内核 HID（SpringBoard 自带权限） |
+| 标点 | 只能在宿主 App 里标 | **在游戏里直接点 ＋ 就能加、拖着点位走** |
+| 配置 | 每个 App 一套 `Documents/LazyTap.json` | 全局一套 `/var/mobile/Library/Preferences/LazyTap.json` |
+
+必须这么做的几个技术点（都是踩过的）：
+
+- SpringBoard 不用 `UIApplication` 管自己的窗口，`app.windows` 常年是空的。
+  老代码「等宿主窗口就绪」在这里会死等 —— 全局模式直接跳过并自建窗口。
+- iOS 13 起没挂 `UIWindowScene` 的窗口不显示。建窗时先取 SpringBoard 自己的 scene
+  （`_SBWindowScene`，按 `UIWindowScene` 基类取），取不到才退回 `initWithFrame:`。
+- **全屏窗口压在所有 App 之上，一旦它认领了触摸，前台 App 就收不到了。**
+  所以 `hitTest` 只在竖条 / 小球 / 面板真正所在的位置返回视图，其余一律返回 `nil`；
+  **运行中连点位标记也返回 `nil`**（它只负责显示），否则 HID 打在自己的点位上会被这层窗吞掉，
+  表现就是「计数在涨、游戏没反应」。
+- 全局模式窗口锁竖屏。HID 的 digitizer 坐标以竖屏为基准，窗口跟着设备转的话，
+  标点位置和实际落点会错开 90°。
+- 全局模式不看面板里的通道设置，一律走 HID —— 进程内合成在 SpringBoard 里只能点到自己。
+- 开跑时自动把竖条折成小球、并收掉参数面板，免得挡住游戏。
 
 ## 1.2.0 改动
 
@@ -89,11 +117,28 @@ dylib 自己签名里的 entitlements 不生效 —— 派发被静默丢弃。
 
 ## 怎么装
 
-用 TrollFools / ESign 把 `LazyTap.dylib` 注入目标 App 后重签。
+**必须注入到 SpringBoard（桌面）**，不是某个目标 App。
 
-- 走默认的「进程内」通道**不需要任何额外权限**，正常重签即可。
-- 只有手动切到「HID」通道时才需要宿主带上 `entitlements.plist` 里的 HID 权限
-  （ESign 的「导入 entitlements」那一步）。
+### 方式一：装 deb（最省事，推荐）
+
+把 `com.xt.lazytap_1.3.0_iphoneos-arm64.deb` 用 **TrollStore** 打开安装。
+dylib 安装到 `Library/MobileSubstrate/DynamicLibraries/`，配套 plist 的 Filter 只匹配
+`com.apple.springboard`，所以只会进桌面进程，不会污染别的 App。装完自动 respring。
+
+### 方式二：TrollFools 注入
+
+TrollFools → 打开「显示系统应用」→ 选 **SpringBoard**（列表里是「桌面 / Home Screen」）
+→ 注入 `LazyTap.dylib` → 它会自动重启桌面。
+
+### 装好之后
+
+1. 桌面右侧出现一颗绿色小球（默认折叠）
+2. **长按小球展开** → ＋ 加点（点在屏幕正中，可拖）、－ 减点、齿轮调间隔/模式
+3. 点竖向的电源键（或折叠后单击小球）开始 → 自动折成小球
+4. 直接打开游戏 / 微信 / 任何 App —— 小球还在，点位继续按间隔点
+5. 想停：点小球（折叠态单击即停）
+
+点位位置、间隔、模式都存全局，重启桌面不会丢。
 
 ## 怎么出包（没有 Mac）
 
@@ -111,4 +156,6 @@ Actions → Artifacts → LazyTap-dylib
   arm64 + arm64e，两个 slice 均 `MH_DYLIB`，`LC_CODE_SIGNATURE` 含 entitlements，
   依赖含 WebKit，符号 `LTUITouchAtWindowPoint` / `LTTapSetChannel` / `LTSyntheticTouch` 均在位。
 - 未验证：真机实际点击效果（需要你在设备上注入后试）。
-- 已知限制：`iohid` 通道受宿主权限约束；进程内通道只作用于被注入的这个 App。
+- 已知限制：全局模式依赖内核 HID 通道，需要 SpringBoard 自带权限（TrollStore 环境天然满足）；
+  普通自签 / AltStore 环境装不了这类注入。
+- 横屏游戏：窗口锁竖屏保证落点准确，但竖条本身不会跟着转（视觉上侧着，位置是对的）。
